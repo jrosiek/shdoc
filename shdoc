@@ -49,6 +49,12 @@ BEGIN {
   styles["github", "b", "from"] = ".*"
   styles["github", "b", "to"] = "**&**"
 
+  styles["github", "c", "from"] = ".*"
+  styles["github", "c", "to"] = "`&`"
+  
+  styles["github", "sup", "from"] = ".*"
+  styles["github", "sup", "to"] = "<sup>&</sup>"
+
   styles["github", "anchor", "from"] = ".*"
   styles["github", "anchor", "to"] = "[&](#&)"
 
@@ -91,12 +97,14 @@ in_block {
   if ( /^# ?$/ ) {
     emptyline = 1
   } else if ( /^[^#]|^# @|^##+/ ) {
+    if (in_block == "code") {
+      docblock = docblock "\n" render("/code") "\n"
+    }
     in_block = 0
     emptyline = 0
   } else if (in_block == "code") {
     if (! /^#[ ]{3}/) {
       in_block = 0
-
       docblock = docblock "\n" render("/code") "\n"
     } else {
       sub(/^#[ ]{3}/, "")
@@ -303,9 +311,9 @@ in_block {
   if (docblock == "") {
     warning("undocumented function: " $1);
   } else {
-    full_name=$1
+    full_name=render("c", $1)
     if (module_name != "") {
-      full_name=render("i", "(" module_name ")") " " full_name
+      full_name=render("sup", render("i", render("c", "(" module_name ")"))) " " full_name
     }
 
     doc = doc "\n* * *\n\n" render("h1", full_name) "\n" docblock "\n"
