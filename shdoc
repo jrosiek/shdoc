@@ -73,6 +73,19 @@ function mdescape(text) {
   return text
 }
 
+function syntax_error(message) {
+  print FILENAME ":" FNR ": syntax_error: " message > "/dev/stderr"
+  exit 1
+}
+
+function warning(message) {
+  print FILENAME ":" FNR ": warning: " message > "/dev/stderr"
+}
+
+BEGINFILE {
+  module_name=""
+}
+
 in_block {
   last_block = in_block
   if ( /^# ?$/ ) {
@@ -156,14 +169,16 @@ in_block {
   authorblock = authorblock "\n" render("li", $0)
 }
 
-/^# @(example | code)/ {
+/^# @(example|code)/ {
   in_block = "code"
   docblock = docblock "\n\n" render("h3", "Example")
   docblock = docblock "\n\n" render("code", "bash")
 
-  sub(/^# @description /, "")
+  sub(/^# @(example|code) +/, "")
 
-  docblock = docblock "\n" $0
+  if ($0 != "") {
+    docblock = docblock "\n" $0
+  }
 }
 
 /^# @vars?/ {
@@ -282,17 +297,35 @@ in_block {
   docblock = docblock "\n" render("li", $0)
 }
 
-/^(function )?([a-zA-Z0-9_:\-\.]+)(\(\))? \{/ && docblock != "" {
+/^(function ([a-zA-Z0-9_:\-\.]+)|([a-zA-Z0-9_:\-\.]+)\(\))/ {
   sub(/^function /, "")
+  sub(/\(\)$/, "", $1)
+  if (docblock == "") {
+    warning("undocumented function: " $1);
+  } else {
+    full_name=$1
+    if (module_name != "") {
+      full_name=render("i", "(" module_name ")") " " full_name
+    }
 
-  doc = doc "\n* * *\n\n" render("h1", $1) "\n" docblock "\n"
+    doc = doc "\n* * *\n\n" render("h1", full_name) "\n" docblock "\n"
 
-  url = $1
-  gsub(/\W/, "", url)
+    url = full_name
+    gsub(/\W/, "", url)
 
-  toc = toc "\n" render("li", "[" $1 "](#" url ")")
+    toc = toc "\n" render("li", "[" full_name "](#" url ")")
 
-  docblock = ""
+    docblock = ""
+  }
+}
+
+/^# @module / {
+  sub(/^# @module /, "")
+  module_name=$0
+}
+
+/^#[ \t]{2,}@/ {
+    syntax_error("command is idented too much")
 }
 
 END {
