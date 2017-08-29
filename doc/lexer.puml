@@ -1,0 +1,34 @@
+@startdot
+digraph finite_state_machine {
+
+    size="8,5"
+    nodesep=1;
+    ranksep=1.8;
+
+
+    edge [fontsize=10, fontname=Courier]
+    node [fontsize=10, fontname=Courier]
+
+    node [shape = point ]; qi
+    node [shape = doublecircle]; E
+
+    node [shape = circle];
+
+    S [label="LineStart"]
+    C [label="Content"]
+
+    qi -> S;
+
+    S -> S[ label = "functon-decl\n/flush;emit(functon-decl)\n\n^#\\s*$\n/emit(empty-line)\n\n^($|[^#])\n/flush;emit(code)" ];
+
+    S -> C [ label="^#\\s@(?P<name>\\w+)\n/flush;emit(directive-<name>)"]
+    S -> C [ label="^#\\s*(?=[^@])\n/process_indent"]
+
+
+    S -> E [ label="^#\\s\\s+@\n/emit(indented-directive)"]
+
+    C -> S [ label="[\\n]?$\n"]
+
+    C -> C [ label = "content\n/emit(content)"]
+}
+@enddot
