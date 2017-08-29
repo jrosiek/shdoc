@@ -1,61 +1,165 @@
 
+from collections import deque
+from collections import namedtuple
 import re
 
-DIRECTIVE = re.compile(r"^#(?P<space>\s+)@(?P<name>\w+)\s+") 
-EMPTY_COMMENT = re.compile(r"^#(?P<space>\s*)$")
-COMMENT = re.compile(r"^#(?P<space>\s+)")
-CODE = re.compile(r".*")
+COMMENT = re.compile(r"^\s*#\s*")
+FUNC_DECL = re.compile(r"(?P<func>function\s+)?(?P<name>[-a-zA-Z0-9_:.]+)(?(func)(\(\))?|\(\)).*")
+DIRECTIVE = re.compile(r"@(?P<name>[a-zA-Z0-9_]+)\s*")
 
-class Token(object):
-    def __init__(self, type, text=None):
-        self.type = type
-        self.text = text
+ContentType = namedtuple("ContentType", "name pattern")
 
-    def __repr__(self):
-        if self.text is not None:
-          return "%s[%s]" % (self.type, self.text)
-        return "%s" % self.type
+Loc = namedtuple("Loc", "line column")
+Token = namedtuple("Token", "type data content_type loc")
 
+WORD_CONTENT = ContentType("word", re.compile(r"\S+\s*"))
+TEXT_CONTENT = ContentType("text", re.compile(r".*$"))
 
 class Lexer(object):
-    def __init__(self, stream):
+    def __init__(self, stream, name):
         self.stream = stream
+        self.name = name
+        self.tokens = deque()
         self.current_line = None
-        self.remaining = ""
-        self.indent = []
+        self.line_index = 0
+        self.line_pos = 0
+        self.loc = Loc(0, 0)
+        self.indent = [0]
 
-    def _categorize_line(self):
-        m = DIRECTIVE.match(self.current_line)
-        if m:
-            if len(m.group("space")) != 1:
-                return m, Token("invalid", "directive cannot be indented")
-            return m, Token('directive-' + m.group("name"))
-        m = EMPTY_COMMENT.match(self.current_line)
-        if m:
-            return m, Token("nl")
-        m = COMMENT.match(self.current_line)
+    def peek(self, content_type):
+        if self.tokens:
+            token = self.tokens[0]
+            if token.content_type is not None and token.content_type != content_type:
+                assert token.loc.line == self.line_index
+                self.line_pos = token.loc.column
+                self._advance(0)    # update self.loc
+                self.tokens.clear() # Remove buffered tokens
+        if not self.tokens:
+            self._make_more(content_type)
+        assert self.tokens
+        return self.tokens[0]
 
-        
-        return CODE.match(self.current_line), Token('code')
+
+    def lex(self, content_type):
+        result = self.peek(content_type)
+        self.tokens.popleft()
+        return result
+
+
+    def _push(self, name, data, content_type=None):
+        self.tokens.append(Token(name, data, content_type, self.loc))
+
+    
+    def _advance(self, l):
+        self.line_pos += l
+        self.loc = Loc(self.line_index, self.line_pos)
+    
+
+    def _advance_line(self):
+        self.line_index += 1
+        self.line_pos = 0
+        self._advance(0)
+
+
+    def _push_match(self, name, match, content_type=None):
+        self._push(name, match, content_type)
+        self._advance(len(match.group(0)))
+
+
+    def _push_invalid(self, msg):
+        self._push('invalid', 
+                  '%s:%d:%d: %s' % (self.name, self.line_index, self.line_pos+1, msg))
+
+
+    def _make_more(self, content_type):
+        if not self.current_line or self.line_pos >= len(self.current_line):
+            self._next_line()
+            assert self.tokens
+            return 
+
+        m = self._match_more(content_type.pattern)
+        if not m:
+            return self._push_invalid('invalid syntax, expected <%s>' % content_type.name)
+
+        self._push_match(content_type.name, m, content_type)
+
+    
+    def _strip_nl(self, text):
+        if text.endswith("\n"):
+            return text[:-1]
+        return text
+
 
     def _next_line(self):
-        self.current_line = self.stream.readline()
-        if not self.current_line:
-            return Token('eof')
+        while not self.tokens:
+            self.current_line = self.stream.readline()
+            if not self.current_line:
+                self.tokens.append(None)
+                continue
+            self.current_line = self._strip_nl(self.current_line)
+            self._advance_line()
+            #print(repr(self.current_line))
 
-        m, token = self._categorize_line()
-        self.remaining = self.current_line[len(m.group(0)):]
-        return token
+            # Preprocess line
+            m = COMMENT.match(self.current_line)
+            if m:
+                # Comment
+                l = len(m.group(0))
+                #print ">>>", repr(m.group(0))
+                if l < len(self.current_line):
+                    self._process_indent(l)
+                    self._advance(l)
+                    self._process_comment()
+                else:
+                    # Empty comment line
+                    self._advance(l)
+            else:
+                text = self.current_line.lstrip()
+                l = len(self.current_line) - len(text)
+                self._process_indent(l)
+                self._advance(l)
+                self._process_code()
 
-    def _lex(self, content_pattern, content_symbol):
-        if not remaining:
-            result = self._next_line()
+
+    def _process_indent(self, n):
+        assert n >= 0
+        while n < self.indent[-1]:
+            self.indent.pop()
+            self._push('dedent', self.indent[-1])
+
+        if n > self.indent[-1]:
+            self.indent.append(n)
+            self._push('indent', n)
+
+
+    def _match_more(self, pattern):
+        #print "@>", repr(self.current_line[self.line_pos:])
+        return pattern.match(self.current_line, self.line_pos)
+
+
+    def _process_code(self):
+        m = self._match_more(FUNC_DECL)
+        if m:
+            return self._push_match('func-decl', m)
+
+        self._push('code', self.current_line)
+        self._advance(len(self.current_line))
+
+
+    def _process_comment(self):
+        m = self._match_more(DIRECTIVE)
+        if m:
+            return self._push_match(m.group("name"), m)
+
+
 
         
 
 
 if __name__ == "__main__":
-    text="""
+    text="""\
+  ddsadasd
+    ala::ma() {
 #
 # @module module name here
 # 
@@ -133,7 +237,20 @@ other::function()
 """
     import StringIO
     data = StringIO.StringIO(text)
-    l = Lexer(data)
 
-    print(l._next_line())
+    l = Lexer(data, "a_file")
+    tok = l.peek(TEXT_CONTENT)
+    while tok is not None:
+        print(tok)
+        if tok.type == "text":
+            tok = l.lex(WORD_CONTENT)
+            print "#>", tok
+        else:
+            l.lex(TEXT_CONTENT)
+
+        tok = l.peek(TEXT_CONTENT)
+
+
+#    print(l._next_line())
+
 
