@@ -3,3 +3,8 @@
 /.tox
 /.cache
 /.eggs
+/assets
+/*.html
+
+__pycache__
+*.pyc

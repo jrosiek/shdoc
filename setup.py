@@ -49,7 +49,7 @@ setup(
     # simple. Or you can use find_packages().
     packages=find_packages(exclude=['tests']),
 
-    install_requires=[],
+    install_requires=['six', 'wrapt'],
     setup_requires=['pytest-runner'],
     tests_require=['pytest'],
 
