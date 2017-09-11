@@ -5,18 +5,18 @@
 ```bash
 #
 # @module module name here
-# 
-# Here is a place for some documentation. 
+#
+# Here is a place for some documentation.
 # @module directive starts documentation of a file.
 #
 # Empty line starts a new paragraph
-# 
+#
 # @authors Author Name <author.name@domain.com>
 #
 # Documentation can be interspersed by directives. It will be
 #     joined together in the final documentation.
 #  Unnecesary and inconsistent indentation is allowed
-# 
+#
 # Empty lines are not required between text and directives.
 # @author
 #   Another Author <another.author@domain.com>
@@ -35,14 +35,14 @@
 # A new documentation paragraph here.
 #
 # @arg name type description
-# 
+#
 # @args
 #   name type this is a very
 #       long description
 #
 #   name2 type2 description2
 #
-# Similarly to @author/@authors, directives @arg, @args are aliases. 
+# Similarly to @author/@authors, directives @arg, @args are aliases.
 # Their content will be merged together.
 #
 # @exitcode 5 description
@@ -71,7 +71,7 @@ function some::name {
 }
 
 # @func Function defined without 'function' keyword
-other::function() 
+other::function()
 {
 }
 
@@ -85,7 +85,7 @@ other::function()
 
 ```bash
 # Error one next directive: no preceding @module directive
-# 
+#
 # @authors Author Name <author.name@domain.com>
 ```
 
@@ -95,15 +95,15 @@ other::function()
 # @module my-module
 
 # Error one next directive: not in the same comment block as @module
-# 
+#
 # @authors Author Name <author.name@domain.com>
 ```
 
-* `@func` directive must precede any other func-level directive 
+* `@func` directive must precede any other func-level directive
 
 ```bash
 # Error one next directive: no preceding @func directive
-# 
+#
 # @arg name type description
 ```
 
@@ -113,7 +113,7 @@ other::function()
 # @func This is my func
 
 # Error one next directive: not in the same comment block as @func
-# 
+#
 # @see Author Name <author.name@domain.com>
 ```
 
@@ -121,7 +121,7 @@ other::function()
 
 ```bash
 # @func This is short description
-# 
+#
 # Error in above directive: function documentation not followed by function definition
 
 function some::name {
@@ -132,7 +132,7 @@ function some::name {
 
 ```bash
 #   @module my-module
-# 
+#
 # Error in above directive: directive must not be indented
 ```
 
@@ -141,31 +141,31 @@ function some::name {
 * function definition must be immediatelly preceded by function documentation comment block
 
 ```bash
-# @func This is short description 
+# @func This is short description
 
 # Error below: undocumented function definition
 function some::name {
 }
 ```
 
+
 ### Lexical analysis
 
-Lexical analysis is performed line-wise - no token can span multiple lines. It is also context dependent. 
-Apart of `DEFAULT_STATE`, parser can switch the lexer into two additional states:
+Lexical analysis is performed line-wise - no token can span multiple lines.
+Each line of text is a source of zero or more tokens.
 
-1. `TEXT_STATE` - lexer will additionally recognize `text-symbol`, which contains all text till the end of line 
-2. `WORD_STATE` - lexer will additionally recognize `word-symbol`, which consist of a span of non-blank characters
+Lexer is stateful. It works according to following state machine:
 
-Each line of text is a source of one or more tokens. 
+![Alt text](./lexer.svg)
 
-In all states followind tokens are recognized:
+In each state the lexer tries to match at current position a pattern from a list of allowed in given state. An invariant is maintained, that at the start of each new line
+and at the start and end of the input, the lexer is in a _LineStart_ state.
 
-1. `directive-X-symbol` - if a next line matches starts with `/^# @X `
+* _LineStart_ - following patterns can be matched
+  * **(1)** - _end-of-input_
+  * **(2)** - begining of a code line
 
-
-There are two categories of terminals
-
-
+### Grammar
 This grammar uses EBNF notation, with a simple extension that reduces grammar size.
 Productions can be parameterized. Parameters can be set to both non-terminals and terminals.
 Parameterized productions behave as templates, which are instantiated whenever parameterized
@@ -174,6 +174,32 @@ non-terminal is used with actual parameter values.
 In this grammar, symbols are lines of input bash script
 
 ```EBNF
+file                    = block EOF ;
+
+block                   = INDENT block DEDENT
+                        | comment
+                        | module
+                        | function
+                        ;
+
+comment                 = text ;
+
+module                  = MODULE-DIRECTIVE text { module-item } ;
+
+module-item             = paragraphs
+                        | authors
+                        ;
+
+
+text                    = { TOKEN } EOL ;
+
+paragraphs              = paragraph { EOL paragraph } ;
+
+paragraph               = text { text } ;
+
+------
+
+
 file = { ignored-symbol } , [ header ] , { ignored-symbol | definition } ;
 
 header = directive(module-symbol) , { header-attribute | spacing-symbol } ;
@@ -198,4 +224,3 @@ author-symbol   = ? line matching '^# @author ' ?
 
 func_symbol .......
 ```
-

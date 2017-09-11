@@ -5,26 +5,26 @@ from .lines import *
 from .patterns import *
 
 
-START_OF_LINE = PatternSequence([
+_START_OF_LINE = PatternSequence([
     ("-empty-comment-line", r"^(?P<indent>\s*#+[^\S\n]*)$\n?"),
+    ("-empty-code-line",    r"^(?P<indent>[^\S\n]*)$\n?"),
     ("-comment-line",       r"^(?P<indent>\s*#+[^\S\n]*)"),
     ("-code-line",          r"^(?P<indent>\s*)(?=\S)"),
-    ("-skip",               r"^(?P<indent>[^\S\n]*)$\n?"),
 ])
 
-CODE_LINE = PatternSequence([
+_CODE_LINE = PatternSequence([
     ("-func",           r"(?P<func>function\s+)?(?P<name>[-a-zA-Z0-9_:.]+)(?(func)(\(\))?|\(\)).*$\n?"),
     ("-code",           r".*$\n?")
 ])
 
-COMMENT_LINE = PatternSequence([
+_COMMENT_LINE = PatternSequence([
     ("-token",          r"\S+[^\S\n]*"), # TODO: accept quoted token
     ("-eol",            r"$\n?"),
 ])
 
-COMMENT_LINE_START = PatternSequence([
+_COMMENT_LINE_START = PatternSequence([
     ("-directive",      r"@(?P<name>[a-zA-Z0-9_]+)[^\S\n]*"),
-]).then(COMMENT_LINE)
+]).then(_COMMENT_LINE)
 
 
 
@@ -42,6 +42,7 @@ class Token(object):
 
 class Lexer(object):
     def __init__(self, stream):
+        self._stream = stream
         self._loc = Loc.start_of(Line.from_stream(stream))
         self._tokens = deque()
         self._indent = [0]
@@ -70,48 +71,49 @@ class Lexer(object):
         self._loc = m.loc_after
         return m
 
-    def _update_indent(self, newIndent):
+    def _update_indent(self, newIndent, match):
         while newIndent < self._indent[-1]:
-            self._push(Token('dedent', value=self._indent[-1]))
+            self._push(Token('dedent', value=self._indent[-1], match=match))
             self._indent.pop()
         if newIndent > self._indent[-1]:
-            self._push(Token("indent", value=newIndent))
+            self._push(Token("indent", value=newIndent, match=match))
             self._indent.append(newIndent)
 
     def _state_start_of_line(self):
         if self._loc is None:
             return self._push(Token("eof"))
 
-        m = self._match(START_OF_LINE)
+        m = self._match(_START_OF_LINE)
 
         if m.name == "-empty-comment-line":
             self._push(Token("eol", match=m))
+        elif m.name == "-empty-code-line":
+            self._push(Token("code", match=m))
         else:
     #        print(repr(m.group("indent")))
-            self._update_indent(len(m.group("indent")))
+            self._update_indent(len(m.group("indent")), m)
             if m.name == "-comment-line":
                 self._state = self._state_comment_line_start
             elif m.name == "-code-line":
                 self._state = self._state_code_line
-            elif m.name == "-skip":
-                pass
             else:
                 assert False
 
     def _state_code_line(self):
-        m = self._match(CODE_LINE)
+        m = self._match(_CODE_LINE)
         self._state = self._state_start_of_line
 
         if m.name == "-func":
-            return self._push(Token("func", match=m, value=m.group("name")))
-        # Ignore other lines
+            self._push(Token("func", match=m, value=m.group("name")))
+        else:
+            self._push(Token("code", match=m))
 
     def _state_comment_line_start(self):
-        m = self._match(COMMENT_LINE_START)
+        m = self._match(_COMMENT_LINE_START)
         self._comment_line_match(m)
     
     def _state_comment_line(self):
-        m = self._match(COMMENT_LINE)
+        m = self._match(_COMMENT_LINE)
         self._comment_line_match(m)
 
     def _comment_line_match(self, m):
@@ -133,6 +135,9 @@ class Lexer(object):
 if __name__ == "__main__":
     import six
     s = Stream(six.StringIO("""\
+# Doc 1
+    
+# Doc 2
 
 function alama::kota {
 

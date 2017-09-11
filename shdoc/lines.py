@@ -73,6 +73,10 @@ class Loc(object):
     def column_index(self): return self._column_index
 
     @property
+    def loc_str(self):
+        return "{}:{}:{}".format(self._line.stream.name, self.line.row_index + 1, self.column_index + 1)
+
+    @property
     def text_at(self):
         return self._line.text[self._column_index:]
 
@@ -93,6 +97,8 @@ class Loc(object):
             self._line.row_index + 1, 
             self._column_index + 1,
             repr(self._line.text[self._column_index:]))
+    
+
 
 
 
